@@ -1,0 +1,83 @@
+version: '3.8'
+
+x-base-cred: &base-cred
+  DEBUG: ${DEBUG}
+
+x-redis-cred: &redis-cred
+  REDIS_PORT: ${REDIS_PORT}
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+x-pg-cred: &pg-cred
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+x-smtp-cred: &smtp-cred
+  SMTP_EMAIL: ${SMTP_EMAIL}
+  SMTP_PASSWORD: ${SMTP_PASSWORD}
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT}
+
+
+x-app-cred: &app-cred
+  <<: *base-cred
+  <<: *pg-cred
+  POSTGRES_HOST: pg
+  POSTGRES_PORT: 5432
+  <<: *redis-cred
+  REDIS_HOST: redis
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+  <<: *smtp-cred
+
+
+services:
+
+  redis:
+    image: redis:7.0-alpine
+    environment: *redis-cred
+    volumes:
+      - redis_data_article:/data
+    restart: on-failure
+    healthcheck:
+      test: [ "CMD", "redis-cli" ]
+      interval: 3s
+      timeout: 5s
+      retries: 3
+    networks:
+      - common-network
+
+
+  pg:
+    image: postgres:14.3-alpine
+    environment: *pg-cred
+    volumes:
+      - pg_data_article:/var/lib/postgresql/data
+    ports:
+      - ${POSTGRES_EXTERNAL_PORT}:5432
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB" ]
+      interval: 3s
+      timeout: 3s
+      retries: 3
+    networks:
+      - common-network
+
+  app:
+    build: ./app
+    environment: *app-cred
+    ports:
+      - ${APP_EXTERNAL_PORT}:8000
+    depends_on:
+      pg:
+        condition: service_healthy
+    networks:
+      - common-network
+
+volumes:
+  pg_data_article:
+  redis_data_article:
+
+networks:
+  common-network:
+    name: article-network
